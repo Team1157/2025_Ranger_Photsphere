@@ -15,12 +15,13 @@ import os
 class ContinuousPanoramaGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Wobbegong pano creator")
+        self.root.title("Wobbegong photosphere")
         self.root.geometry("1400x900")
         self.root.configure(bg='#000000')
         
         self.cap = None
-        self.stitcher = cv2.Stitcher.create(cv2.Stitcher_PANORAMA)
+        # Use cylindrical stitcher for 360-degree panoramas cause otherwise it gets reeeeal confused
+        self.stitcher = cv2.Stitcher.create(cv2.Stitcher_SCANS)
         self.frames = []
         self.running = False
         self.auto_mode = False
@@ -35,10 +36,16 @@ class ContinuousPanoramaGUI:
         self.scene_change_threshold = 25.0
         self.capture_interval = 1.5
         self.last_capture_time = 0
-        self.min_frames_before_stitch = 2
+        self.min_frames_before_stitch = 3
         self.brightness = 0
         self.contrast = 1.0
         self.camera_source = "webcam"
+        
+        # 360-degree specific settings, given that im not sure if we'll use these
+        self.enable_360_mode = True
+        self.cylindrical_projection = True
+        self.max_frames_for_360 = 50  # Limit frames to prevent memory issues maybe a non issue
+        self.overlap_threshold = 0.3  # For detecting full circle completion
         
         self.continuous_stitching = True
         self.stitch_queue = queue.Queue()
@@ -47,6 +54,10 @@ class ContinuousPanoramaGUI:
         self.camera_display_width = 640
         self.camera_display_height = 480
         self.pano_display_height = 350
+        
+        # Feature detector for the newish 360 mode
+        self.feature_detector = cv2.SIFT_create()
+        self.feature_matcher = cv2.BFMatcher()
         
         self.setup_ui()
         
@@ -62,7 +73,7 @@ class ContinuousPanoramaGUI:
         header_frame = tk.Frame(parent, bg='#1c1c1e', relief=tk.RAISED, bd=2)
         header_frame.pack(fill=tk.X, pady=(0, 10))
         
-        tk.Label(header_frame, text="🔄 Continuous Panorama Creator", font=('SF Pro Display', 16, 'bold'), 
+        tk.Label(header_frame, text="🔄 Wobby photosphere", font=('SF Pro Display', 16, 'bold'), 
                 bg='#1c1c1e', fg='#ffffff').pack(pady=10)
         
         button_frame = tk.Frame(header_frame, bg='#1c1c1e')
@@ -125,6 +136,12 @@ class ContinuousPanoramaGUI:
                                           bg='#1c1c1e', fg='#FF9500')
         self.stitch_status_label.pack(anchor=tk.W, pady=5)
         
+        # Add 360-degree progress indicator
+        self.progress_label = tk.Label(self.right_frame, text="360° Progress: 0%", 
+                                     font=('SF Pro Display', 12),
+                                     bg='#1c1c1e', fg='#007AFF')
+        self.progress_label.pack(anchor=tk.W, pady=5)
+        
         self.setup_control_buttons(self.right_frame)
         
     def setup_control_buttons(self, parent):
@@ -154,7 +171,7 @@ class ContinuousPanoramaGUI:
         header_frame = tk.Frame(self.pano_frame, bg='#1c1c1e')
         header_frame.pack(fill=tk.X, pady=10, padx=10)
         
-        tk.Label(header_frame, text="🖼️ Growing Panorama", font=('SF Pro Display', 16, 'bold'),
+        tk.Label(header_frame, text="🖼️ Growing  Panorama", font=('SF Pro Display', 16, 'bold'),
                 bg='#1c1c1e', fg='#ffffff').pack(side=tk.LEFT)
         
         self.setup_scrollable_panorama(self.pano_frame)
@@ -174,7 +191,7 @@ class ContinuousPanoramaGUI:
         self.v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.pano_canvas.configure(yscrollcommand=self.v_scrollbar.set)
         
-        self.pano_canvas.create_text(400, 150, text="Panorama will grow here as frames are captured",
+        self.pano_canvas.create_text(400, 150, text=" will grow here as you rotate",
                                    font=('SF Pro Display', 16), fill='#3a3a3c')
             
     def toggle_connection(self):
@@ -240,13 +257,13 @@ class ContinuousPanoramaGUI:
     def take_initial_capture(self):
         if self.current_frame is not None:
             self.capture_frame_for_panorama()
-            self.status_label.configure(text="Initial frame captured!\nRotate wobby slowly")
+            self.status_label.configure(text="Initial frame captured!\nRotate slowly for 360°")
         else:
             ret, frame = self.cap.read()
             if ret:
                 self.current_frame = frame
                 self.capture_frame_for_panorama()
-                self.status_label.configure(text="Initial frame captured!\nRotate wobby slowly")
+                self.status_label.configure(text="Initial frame captured!\nRotate slowly for 360°")
             
     def disconnect_and_stop(self):
         self.running = False
@@ -262,6 +279,7 @@ class ContinuousPanoramaGUI:
         self.camera_label.configure(image='', text="Camera view will appear here")
         self.frame_count_label.configure(text="Frames: 0")
         self.stitch_status_label.configure(text="Stitching: Idle")
+        self.progress_label.configure(text="360° Progress: 0%")
         
     def apply_brightness_contrast(self, frame):
         if self.brightness != 0 or self.contrast != 1.0:
@@ -327,10 +345,14 @@ class ContinuousPanoramaGUI:
         thickness = 2
         
         cv2.circle(overlay, (20, 20), circle_radius, (0, 0, 255), -1)
-        cv2.putText(overlay, "CAPTURING", (35, 25), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 255), thickness)
+        cv2.putText(overlay, "360° CAPTURING", (35, 25), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 255), thickness)
         
         text = f"Frames: {self.total_frames}"
         cv2.putText(overlay, text, (10, h-10), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness)
+        
+        # Add rotation indicator
+        progress = min(100, (self.total_frames / 30) * 100)  # Estimate progress, thisll change with the actual bot but this is what it is for my 480p webcam
+        cv2.putText(overlay, f"Progress: {progress:.0f}%", (10, h-30), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 0), thickness)
         
         return overlay
         
@@ -349,6 +371,10 @@ class ContinuousPanoramaGUI:
         current_time = time.time()
         
         if current_time - self.last_capture_time < self.capture_interval:
+            return
+            
+        # Stop capturing if we have too many frames so no memory issues please :3
+        if self.total_frames >= self.max_frames_for_360:
             return
             
         if self.previous_frame is not None:
@@ -377,6 +403,40 @@ class ContinuousPanoramaGUI:
         
         return mean_diff
         
+    def apply_cylindrical_projection(self, frame):
+        """Apply cylindrical projection to the frame for better 360-degree stitching"""
+        if not self.cylindrical_projection:
+            return frame
+            
+        h, w = frame.shape[:2]
+        
+        # Calculate focal length (aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
+        focal_length = w / (2 * np.tan(np.pi / 6.85))  # Assuming 68.5-degree FOV cause there's one chiefdelphi thread from a while ago saying that
+        
+        # Create coordinate matrices
+        x, y = np.meshgrid(np.arange(w), np.arange(h))
+        
+        # Convert to cylindrical coordinates
+        x_c = x - w / 2
+        y_c = y - h / 2
+        
+        # Apply cylindrical projection
+        theta = x_c / focal_length
+        h_cyl = y_c / np.sqrt(x_c**2 + focal_length**2) * focal_length
+        
+        # Convert back to image coordinates
+        x_new = focal_length * theta + w / 2
+        y_new = h_cyl + h / 2
+        
+        # Create maps for remapping
+        map_x = x_new.astype(np.float32)
+        map_y = y_new.astype(np.float32)
+        
+        # Remap the image
+        projected = cv2.remap(frame, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+        
+        return projected
+        
     def capture_frame_for_panorama(self):
         if self.current_frame is None:
             return
@@ -387,11 +447,19 @@ class ContinuousPanoramaGUI:
             scale = 800 / w
             new_w, new_h = int(w * scale), int(h * scale)
             frame = cv2.resize(frame, (new_w, new_h))
+        
+        # Apply cylindrical projection for 360-degree mode
+        if self.enable_360_mode:
+            frame = self.apply_cylindrical_projection(frame)
             
         self.frames.append(frame)
         self.total_frames += 1
         
+        # Calculate approximate progress
+        progress = min(100, (self.total_frames / 30) * 100)
+        
         self.root.after(0, lambda: self.frame_count_label.configure(text=f"Frames: {self.total_frames}"))
+        self.root.after(0, lambda: self.progress_label.configure(text=f"360° Progress: {progress:.0f}%"))
         
         if len(self.frames) >= self.min_frames_before_stitch:
             try:
@@ -400,11 +468,13 @@ class ContinuousPanoramaGUI:
                 pass
         
         if self.total_frames == 1:
-            status = "First frame captured!\nContinue moving camera"
+            status = "First frame captured!\nRotate slowly in one direction"
         elif self.total_frames < 5:
-            status = f"Frame {self.total_frames} captured\nKeep moving for panorama"
+            status = f"Frame {self.total_frames} captured\nKeep rotating slowly"
+        elif self.total_frames < 15:
+            status = f"Frame {self.total_frames} captured\n360° panorama building..."
         else:
-            status = f"Frame {self.total_frames} captured\nPanorama growing..."
+            status = f"Frame {self.total_frames} captured\nNearly complete circle!"
             
         self.root.after(0, lambda: self.status_label.configure(text=status))
         
@@ -431,9 +501,20 @@ class ContinuousPanoramaGUI:
         try:
             frame_list = self.frames.copy()
             
+            # For 360-degree panoramas, we might need to handle wraparound
+            if self.enable_360_mode and len(frame_list) > 10:
+                # Try to detect if we've completed a full circle
+                if self.detect_full_circle(frame_list):
+                    # Add some frames from the beginning to the end for better wraparound
+                    frame_list.extend(frame_list[:3])
+            
             status, panorama = self.stitcher.stitch(frame_list)
             
             if status == cv2.Stitcher_OK:
+                # Post-process for 360-degree panorama
+                if self.enable_360_mode:
+                    panorama = self.post_process_360_panorama(panorama)
+                
                 with self.panorama_lock:
                     self.current_panorama = panorama
                 
@@ -452,10 +533,71 @@ class ContinuousPanoramaGUI:
         finally:
             self.stitching_in_progress = False
             
+    def detect_full_circle(self, frames):
+        """Detect if we've completed a full 360-degree rotation by comparing first and last frames"""
+        if len(frames) < 10:
+            return False
+            
+        try:
+            # Compare first few frames with last few frames
+            first_frame = frames[0]
+            last_frame = frames[-1]
+            
+            # Convert to grayscale
+            gray1 = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
+            gray2 = cv2.cvtColor(last_frame, cv2.COLOR_BGR2GRAY)
+            
+            # Detect features
+            kp1, des1 = self.feature_detector.detectAndCompute(gray1, None)
+            kp2, des2 = self.feature_detector.detectAndCompute(gray2, None)
+            
+            if des1 is not None and des2 is not None and len(des1) > 10 and len(des2) > 10:
+                # Match features
+                matches = self.feature_matcher.knnMatch(des1, des2, k=2)
+                
+                # Filter good matches
+                good_matches = []
+                for match_pair in matches:
+                    if len(match_pair) == 2:
+                        m, n = match_pair
+                        if m.distance < 0.7 * n.distance:
+                            good_matches.append(m)
+                
+                # If we have enough good matches, we might have completed a circle
+                if len(good_matches) > 20:
+                    return True
+                    
+        except Exception as e:
+            print(f"Circle detection error: {e}")
+            
+        return False
+        
+    def post_process_360_panorama(self, panorama):
+        """Post-process the panorama for better 360-degree viewing"""
+#        try:
+            # Remove black borders
+#            gray = cv2.cvtColor(panorama, cv2.COLOR_BGR2GRAY)
+#            _, thresh = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+#            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+#            if contours:
+                # Find the largest contour (the panorama content)
+#                largest_contour = max(contours, key=cv2.contourArea)
+#                x, y, w, h = cv2.boundingRect(largest_contour)
+                
+                # Crop to remove black borders
+#TODO                panorama = panorama[y:y+h, x:x+w]
+                
+#            return panorama
+        return panorama            
+#        except Exception as e:
+#            print(f"Post-processing error: {e}")
+#            return panorama
+        
     def get_stitch_error_message(self, status):
         error_messages = {
             cv2.Stitcher_ERR_NEED_MORE_IMGS: "Need more images",
-            cv2.Stitcher_ERR_HOMOGRAPHY_EST_FAIL: "Poor overlap",
+            cv2.Stitcher_ERR_HOMOGRAPHY_EST_FAIL: "Poor overlap - rotate slower",
             cv2.Stitcher_ERR_CAMERA_PARAMS_ADJUST_FAIL: "Camera adjust fail"
         }
         return error_messages.get(status, f"Error {status}")
@@ -478,11 +620,13 @@ class ContinuousPanoramaGUI:
             
             self.pano_canvas.configure(scrollregion=self.pano_canvas.bbox("all"))
             
-            self.pano_canvas.xview_moveto(1.0)
+            # For 360-degree panoramas, don't auto-scroll to the end
+            if not self.enable_360_mode:
+                self.pano_canvas.xview_moveto(1.0)
             
         except Exception as e:
             print(f"Display update error: {e}")
-             
+               
     def end_and_save(self):
         if self.current_panorama is None:
             messagebox.showwarning("Warning", "No panorama to save")
