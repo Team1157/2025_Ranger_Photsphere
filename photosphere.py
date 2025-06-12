@@ -36,6 +36,9 @@ class ContinuousPanoramaGUI:
         self.capture_interval = 1.5
         self.last_capture_time = 0
         self.min_frames_before_stitch = 2
+        self.brightness = 0
+        self.contrast = 1.0
+        self.camera_source = "webcam"
         
         self.continuous_stitching = True
         self.stitch_queue = queue.Queue()
@@ -51,39 +54,33 @@ class ContinuousPanoramaGUI:
         main_frame = tk.Frame(self.root, bg='#000000')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        self.setup_connection_section(main_frame)
+        self.setup_header_section(main_frame)
         self.setup_camera_section(main_frame)
         self.setup_panorama_section(main_frame)
         
-    def setup_connection_section(self, parent):
-        conn_frame = tk.Frame(parent, bg='#1c1c1e', relief=tk.RAISED, bd=2)
-        conn_frame.pack(fill=tk.X, pady=(0, 10))
+    def setup_header_section(self, parent):
+        header_frame = tk.Frame(parent, bg='#1c1c1e', relief=tk.RAISED, bd=2)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
         
-        tk.Label(conn_frame, text="🔄 Continuous Panorama Creator", font=('SF Pro Display', 16, 'bold'), 
+        tk.Label(header_frame, text="🔄 Continuous Panorama Creator", font=('SF Pro Display', 16, 'bold'), 
                 bg='#1c1c1e', fg='#ffffff').pack(pady=10)
         
-        url_frame = tk.Frame(conn_frame, bg='#1c1c1e')
-        url_frame.pack(fill=tk.X, padx=20, pady=5)
+        button_frame = tk.Frame(header_frame, bg='#1c1c1e')
+        button_frame.pack(pady=10)
         
-        tk.Label(url_frame, text="Camera Source:", font=('SF Pro Display', 12), 
-                bg='#1c1c1e', fg='#ffffff').pack(anchor=tk.W)
+        self.settings_btn = tk.Button(button_frame, text="⚙️ Settings", 
+                                    command=self.show_settings,
+                                    font=('SF Pro Display', 12),
+                                    bg='#8E8E93', fg='#ffffff', relief=tk.FLAT,
+                                    width=15, height=1, cursor='hand2')
+        self.settings_btn.pack(side=tk.LEFT, padx=5)
         
-        self.url_var = tk.StringVar(value="webcam")
-        self.url_entry = tk.Entry(url_frame, textvariable=self.url_var, font=('SF Pro Display', 12),
-                                 bg='#2c2c2e', fg='#ffffff', insertbackground='#ffffff', 
-                                 relief=tk.FLAT, bd=5)
-        self.url_entry.pack(fill=tk.X, pady=5)
-        
-        helper_text = tk.Label(url_frame, text="💡 'webcam' for device camera or MJPEG URL for wobby", 
-                              font=('SF Pro Display', 10), bg='#1c1c1e', fg='#8e8e93')
-        helper_text.pack(anchor=tk.W, pady=(2, 0))
-        
-        self.connect_btn = tk.Button(conn_frame, text="🔌 start capture ", 
+        self.connect_btn = tk.Button(button_frame, text="🔌 Start Capture", 
                                    command=self.toggle_connection,
                                    font=('SF Pro Display', 14, 'bold'),
                                    bg='#007AFF', fg='#ffffff', relief=tk.FLAT,
                                    height=2, cursor='hand2')
-        self.connect_btn.pack(pady=10)
+        self.connect_btn.pack(side=tk.LEFT, padx=5)
         
     def setup_camera_section(self, parent):
         self.camera_container = tk.Frame(parent, bg='#1c1c1e', relief=tk.RAISED, bd=2)
@@ -113,7 +110,7 @@ class ContinuousPanoramaGUI:
                 bg='#1c1c1e', fg='#ffffff').pack(anchor=tk.W, pady=(0, 10))
         
         self.status_label = tk.Label(self.right_frame, 
-                                   text="Ready to start\ncontinuous pano",
+                                   text="Configure settings\nthen start capture",
                                    font=('SF Pro Display', 12), bg='#1c1c1e', fg='#8e8e93',
                                    wraplength=200, justify=tk.LEFT)
         self.status_label.pack(anchor=tk.W, pady=5)
@@ -141,13 +138,6 @@ class ContinuousPanoramaGUI:
                                width=15, height=2, cursor='hand2',
                                state=tk.DISABLED)
         self.end_btn.pack(pady=5)
-        
-        self.settings_btn = tk.Button(btn_frame, text="⚙️ Settings", 
-                                    command=self.show_settings,
-                                    font=('SF Pro Display', 12),
-                                    bg='#8E8E93', fg='#ffffff', relief=tk.FLAT,
-                                    width=15, height=1, cursor='hand2')
-        self.settings_btn.pack(pady=5)
         
         self.clear_btn = tk.Button(btn_frame, text="🗑️ Clear", 
                                  command=self.clear_panorama,
@@ -194,30 +184,25 @@ class ContinuousPanoramaGUI:
             self.disconnect_and_stop()
             
     def connect_and_start(self):
-        url = self.url_var.get().strip()
-        if not url:
-            messagebox.showerror("Error", "not a url smh")
-            return
-            
         try:
-            if url.lower() == "webcam":
+            if self.camera_source.lower() == "webcam":
                 self.cap = cv2.VideoCapture(0)
                 connection_type = "webcam"
             else:
-                self.cap = cv2.VideoCapture(url)
+                self.cap = cv2.VideoCapture(self.camera_source)
                 connection_type = "MJPEG stream"
                 
             if not self.cap.isOpened():
-                if url.lower() == "webcam":
+                if self.camera_source.lower() == "webcam":
                     self.cap = cv2.VideoCapture(1)
                     if not self.cap.isOpened():
-                        raise ConnectionError("No camera :megamind:")
+                        raise ConnectionError("No camera found")
                 else:
-                    raise ConnectionError(f"connection error on {connection_type}")
+                    raise ConnectionError(f"Connection error on {connection_type}")
                     
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             
-            if url.lower() == "webcam":
+            if self.camera_source.lower() == "webcam":
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
                 self.cap.set(cv2.CAP_PROP_FPS, 30)
@@ -233,10 +218,13 @@ class ContinuousPanoramaGUI:
             self.connect_btn.configure(text="🔌 Disconnect", bg='#8E8E93')
             self.end_btn.configure(state=tk.NORMAL)
             self.clear_btn.configure(state=tk.NORMAL)
-            self.status_label.configure(text="rotate wobby sorta slowly")
+            self.status_label.configure(text="Taking initial capture...")
             
             self.capture_thread = threading.Thread(target=self.capture_frames, daemon=True)
             self.capture_thread.start()
+            
+            time.sleep(0.5)
+            self.take_initial_capture()
             
             self.auto_thread = threading.Thread(target=self.auto_capture_loop, daemon=True)
             self.auto_thread.start()
@@ -247,7 +235,18 @@ class ContinuousPanoramaGUI:
             self.update_camera_view()
             
         except Exception as e:
-            messagebox.showerror("Error", f" {str(e)}")
+            messagebox.showerror("Error", f"Connection failed: {str(e)}")
+            
+    def take_initial_capture(self):
+        if self.current_frame is not None:
+            self.capture_frame_for_panorama()
+            self.status_label.configure(text="Initial frame captured!\nRotate wobby slowly")
+        else:
+            ret, frame = self.cap.read()
+            if ret:
+                self.current_frame = frame
+                self.capture_frame_for_panorama()
+                self.status_label.configure(text="Initial frame captured!\nRotate wobby slowly")
             
     def disconnect_and_stop(self):
         self.running = False
@@ -256,18 +255,24 @@ class ContinuousPanoramaGUI:
         if self.cap:
             self.cap.release()
         
-        self.connect_btn.configure(text="🔌 Start Continuous Mode", bg='#007AFF')
+        self.connect_btn.configure(text="🔌 Start Capture", bg='#007AFF')
         self.end_btn.configure(state=tk.DISABLED)
         self.clear_btn.configure(state=tk.DISABLED)
-        self.status_label.configure(text="Ready to start\ncontinuous pano")
+        self.status_label.configure(text="Configure settings\nthen start capture")
         self.camera_label.configure(image='', text="Camera view will appear here")
         self.frame_count_label.configure(text="Frames: 0")
         self.stitch_status_label.configure(text="Stitching: Idle")
+        
+    def apply_brightness_contrast(self, frame):
+        if self.brightness != 0 or self.contrast != 1.0:
+            frame = cv2.convertScaleAbs(frame, alpha=self.contrast, beta=self.brightness)
+        return frame
         
     def capture_frames(self):
         while self.running:
             ret, frame = self.cap.read()
             if ret:
+                frame = self.apply_brightness_contrast(frame)
                 try:
                     self.frame_queue.put(frame, block=False)
                 except queue.Full:
@@ -515,29 +520,60 @@ class ContinuousPanoramaGUI:
     def show_settings(self):
         settings_window = tk.Toplevel(self.root)
         settings_window.title("Continuous Panorama Settings")
-        settings_window.geometry("400x300")
+        settings_window.geometry("500x500")
         settings_window.configure(bg='#1c1c1e')
         settings_window.resizable(False, False)
         
+        tk.Label(settings_window, text="Camera Source:", 
+                bg='#1c1c1e', fg='#ffffff', font=('SF Pro Display', 12)).pack(pady=(20,5))
+        
+        source_var = tk.StringVar(value=self.camera_source)
+        source_entry = tk.Entry(settings_window, textvariable=source_var, font=('SF Pro Display', 12),
+                               bg='#2c2c2e', fg='#ffffff', insertbackground='#ffffff', 
+                               relief=tk.FLAT, bd=5, width=40)
+        source_entry.pack(pady=5)
+        
+        tk.Label(settings_window, text="'webcam' for device camera or MJPEG URL for wobby",
+                font=('SF Pro Display', 10), bg='#1c1c1e', fg='#8e8e93').pack(pady=(2,15))
+        
         tk.Label(settings_window, text="Scene Change Threshold:", 
-                bg='#1c1c1e', fg='#ffffff', font=('SF Pro Display', 12)).pack(pady=10)
+                bg='#1c1c1e', fg='#ffffff', font=('SF Pro Display', 12)).pack(pady=(10,5))
         threshold_var = tk.DoubleVar(value=self.scene_change_threshold)
         threshold_scale = tk.Scale(settings_window, from_=10.0, to=80.0, resolution=5.0,
                                  variable=threshold_var, orient=tk.HORIZONTAL, 
                                  bg='#2c2c2e', fg='#ffffff', font=('SF Pro Display', 10))
-        threshold_scale.pack(fill=tk.X, padx=20)
+        threshold_scale.pack(fill=tk.X, padx=20, pady=5)
         
         tk.Label(settings_window, text="Capture Interval (seconds):", 
-                bg='#1c1c1e', fg='#ffffff', font=('SF Pro Display', 12)).pack(pady=10)
+                bg='#1c1c1e', fg='#ffffff', font=('SF Pro Display', 12)).pack(pady=(10,5))
         interval_var = tk.DoubleVar(value=self.capture_interval)
         interval_scale = tk.Scale(settings_window, from_=0.5, to=5.0, resolution=0.5,
                                 variable=interval_var, orient=tk.HORIZONTAL, 
                                 bg='#2c2c2e', fg='#ffffff', font=('SF Pro Display', 10))
-        interval_scale.pack(fill=tk.X, padx=20)
+        interval_scale.pack(fill=tk.X, padx=20, pady=5)
+        
+        tk.Label(settings_window, text="Brightness:", 
+                bg='#1c1c1e', fg='#ffffff', font=('SF Pro Display', 12)).pack(pady=(10,5))
+        brightness_var = tk.IntVar(value=self.brightness)
+        brightness_scale = tk.Scale(settings_window, from_=-100, to=100, resolution=5,
+                                   variable=brightness_var, orient=tk.HORIZONTAL, 
+                                   bg='#2c2c2e', fg='#ffffff', font=('SF Pro Display', 10))
+        brightness_scale.pack(fill=tk.X, padx=20, pady=5)
+        
+        tk.Label(settings_window, text="Contrast:", 
+                bg='#1c1c1e', fg='#ffffff', font=('SF Pro Display', 12)).pack(pady=(10,5))
+        contrast_var = tk.DoubleVar(value=self.contrast)
+        contrast_scale = tk.Scale(settings_window, from_=0.5, to=3.0, resolution=0.1,
+                                 variable=contrast_var, orient=tk.HORIZONTAL, 
+                                 bg='#2c2c2e', fg='#ffffff', font=('SF Pro Display', 10))
+        contrast_scale.pack(fill=tk.X, padx=20, pady=5)
         
         def apply_settings():
+            self.camera_source = source_var.get().strip()
             self.scene_change_threshold = threshold_var.get()
             self.capture_interval = interval_var.get()
+            self.brightness = brightness_var.get()
+            self.contrast = contrast_var.get()
             settings_window.destroy()
             messagebox.showinfo("Settings", "Settings applied successfully!")
             
