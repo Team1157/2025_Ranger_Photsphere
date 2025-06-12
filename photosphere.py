@@ -271,7 +271,7 @@ class ContinuousPanoramaGUI:
             self.connect_btn.configure(text="🔌 Disconnect", bg='#8E8E93')
             self.end_btn.configure(state=tk.NORMAL)
             self.clear_btn.configure(state=tk.NORMAL)
-            self.status_label.configure(text="Scanning for scene changes...\N rotate wobby sorta slowly")
+            self.status_label.configure(text="rotate wobby sorta slowly")
             
             # Start threads
             self.capture_thread = threading.Thread(target=self.capture_frames, daemon=True)
