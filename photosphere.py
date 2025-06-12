@@ -15,7 +15,7 @@ import os
 class ContinuousPanoramaGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Wobbegong photosphere")
+        self.root.title("BHS Robotics photosphere")
         self.root.geometry("1400x900")
         self.root.configure(bg='#000000')
         
@@ -73,7 +73,7 @@ class ContinuousPanoramaGUI:
         header_frame = tk.Frame(parent, bg='#1c1c1e', relief=tk.RAISED, bd=2)
         header_frame.pack(fill=tk.X, pady=(0, 10))
         
-        tk.Label(header_frame, text="🔄 Wobby photosphere", font=('SF Pro Display', 16, 'bold'), 
+        tk.Label(header_frame, text="🔄 BHS Robosharks photosphere", font=('SF Pro Display', 16, 'bold'), 
                 bg='#1c1c1e', fg='#ffffff').pack(pady=10)
         
         button_frame = tk.Frame(header_frame, bg='#1c1c1e')
@@ -345,7 +345,7 @@ class ContinuousPanoramaGUI:
         thickness = 2
         
         cv2.circle(overlay, (20, 20), circle_radius, (0, 0, 255), -1)
-        cv2.putText(overlay, "360° CAPTURING", (35, 25), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 255), thickness)
+        cv2.putText(overlay, "Recording", (35, 25), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 255), thickness)
         
         text = f"Frames: {self.total_frames}"
         cv2.putText(overlay, text, (10, h-10), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness)
@@ -677,7 +677,7 @@ class ContinuousPanoramaGUI:
                                relief=tk.FLAT, bd=5, width=40)
         source_entry.pack(pady=5)
         
-        tk.Label(settings_window, text="'webcam' for device camera or MJPEG URL for wobby",
+        tk.Label(settings_window, text="'webcam' for device camera or MJPEG URL for ROV",
                 font=('SF Pro Display', 10), bg='#1c1c1e', fg='#8e8e93').pack(pady=(2,15))
         
         tk.Label(settings_window, text="Scene Change Threshold:", 
