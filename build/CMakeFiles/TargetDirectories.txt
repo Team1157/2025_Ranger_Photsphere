@@ -1,3 +1,0 @@
-/home/ada/2025_Ranger_Photsphere/py/build/CMakeFiles/ROVPhotosphere.dir
-/home/ada/2025_Ranger_Photsphere/py/build/CMakeFiles/edit_cache.dir
-/home/ada/2025_Ranger_Photsphere/py/build/CMakeFiles/rebuild_cache.dir
